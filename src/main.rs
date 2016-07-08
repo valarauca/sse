@@ -36,7 +36,7 @@ The format string is inserted on matches. %1,%2,...,%9 denote capture groups.
 for >9 capture groups.
 
 Example usage:
-$ sse -e [REGEX] [FORMAT STRING]
+$ sse -i [REGEX] [FORMAT STRING]
 $ sse -flf [FILE] [REGEX] [FORMAT STRING]";
 
 
@@ -112,16 +112,19 @@ impl Ops{
                 Option::None => {print_and_exit!(HELP);},
                 Option::Some(ref x) if x == "--version" || x == "-v" => {print_and_exit!(VERS);},
                 Option::Some(ref x) if x == "--help" || x == "-h" => {print_and_exit!(MSG);},
-                Option::Some(ref x) if x == "-i" || x == "-in" || x == "i" || x == "in" => match Regex::new(x) {
-                    Ok(regex) => match args.pop() {
-                        Option::Some(fmt) => match x.as_ref() {
-                            "-i" | "i" => return Ops::I(regex,fmt,false),
-                            "-in" | "in" => return Ops::I(regex,fmt,true),
-                            _ => unreachable!()
+                Option::Some(ref x) if x == "-i" || x == "-in" || x == "i" || x == "in" => match args.pop() {
+                        Option::Some(ref r) => match Regex::new(r) {
+                            Ok(regex) => match args.pop() {
+                                Option::Some(fmt) => match x.as_ref() {
+                                    "-i" | "i" => return Ops::I(regex,fmt,false),
+                                    "-in" | "in" => return Ops::I(regex,fmt,true),
+                                    _ => unreachable!()
+                                },
+                                Option::None => {print_and_exit!(WRONG_ARGS);},
+                            },
+                            Err(e) => {print_and_exit!("Error occured building regex", e);},
                         },
                         Option::None => {print_and_exit!(WRONG_ARGS);},
-                    },
-                    Err(e) => {print_and_exit!("Error occured building regex", e);},
                 },
                 Option::Some(ref x) if x =="-flo" || x=="-flon" || x=="flo" || x=="flon" => match args.pop(){
                     Option::Some(f) => match args.pop() {

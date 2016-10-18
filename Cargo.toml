@@ -5,3 +5,6 @@ authors = ["William Laeder <codylaeder@gmail.com>"]
 
 [dependencies]
 regex = "0.1"
+
+[profile.release]
+lto = true

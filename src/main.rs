@@ -26,6 +26,8 @@ CLI Options:
 -flfn    read file line-by-line but return non-matching lines
 -flfw    read file line-by-line use Windows EOL
 -flfnw   read file line-by-line return non-matching use Windows EOL
+-fco     read the file as a continous buffer
+
 
 Regex Dialect:
 Internally sse uses Rust Regexes (Thanks to Burnt Sushi, Alex Crichton, and Huown).
@@ -177,6 +179,20 @@ impl Ops{
                         Option::None => { print_and_exit!(WRONG_ARGS);}
                     },
                     Option::None => { print_and_exit!(WRONG_ARGS);}
+                },
+                Option::Some(ref x) if x == "-fco" || x == "fco" => match args.pop() {
+                    Option::Some(f) => match args.pop(){
+                        Option::Some(ref r) => match Regex::new(r) {
+                            Ok(regex) => match args.pop() {
+                                Option::Some(fmt) => return Ops::FLC(f,regex,fmt),
+                                Option::None => {print_and_exit!(WRONG_ARGS);}
+                            },
+                            Err(e) => {print_and_exit!("Error occured building regex", e);}
+                        },
+                    Option::None => { print_and_exit!(WRONG_ARGS); }
+                    
+                    },
+                    Option::None => { print_and_exit!(WRONG_ARGS); }
                 },
                 _ => {print_and_exit!("I don't understand that argument.");}
             }

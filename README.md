@@ -1,14 +1,14 @@
 # sse
 Simple Stream Editor
 
-sse is a stream editor that uses perl/python-esque regexes to lower the learning curve compared to sed. What I'm trying to say is I didn't want to learn sed's regex dialect. 
+sse is a stream editor that uses perl/python-esque regexes to lower the learning curve compared to sed. What I'm trying to say is I didn't want to learn sed's regex dialect.
 
 ###Example usage:
 
      $ sse -i [REGEX] [FORMAT STRING]
      $ sse -flf [FILE] [REGEX] [FORMAT STRING]
 
-###CLI Options 
+###CLI Options
 
 (- can be omitted much like tar)
 
@@ -22,6 +22,7 @@ sse is a stream editor that uses perl/python-esque regexes to lower the learning
      -flfn    read file line-by-line but return non-matching lines
      -flfw    read file line-by-line use Windows EOL
      -flfnw   read file line-by-line use nice mode use Windows EOL
+     -fco     read file as a continous buffer 
 
 
 ###Regex Dialect:
@@ -46,4 +47,3 @@ The format string is inserted on matches. It uses `%1` sytle to denote capture g
     The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-

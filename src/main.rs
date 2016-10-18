@@ -96,7 +96,8 @@ fn scan(buffer: &str,groups: &Captures) -> String {
 pub enum Ops {
     I(Regex,String,bool),
     FLO(String,Regex,String,bool),
-    FLF(String,Regex,String,bool,bool)
+    FLF(String,Regex,String,bool,bool),
+    FLC(String,Regex,String)
 }
 impl Ops{
 
@@ -163,6 +164,19 @@ impl Ops{
                         Option::None => {print_and_exit!(WRONG_ARGS);},
                     },
                     Option::None => {print_and_exit!(WRONG_ARGS);},
+                },
+                Option::Some(ref x) if x == "-flo" || x == "flo" => match args.pop() {
+                    Option::Some(f) => match args.pop() {
+                        Option::Some(ref r) => match Regex::new(r) {
+                            Ok(regex) => match args.pop() {
+                                Option::Some(fmt) => return Ops::FLC(f,regex,fmt),
+                                Option::None => { print_and_exit!(WRONG_ARGS);}
+                            },
+                            Err(e) => {print_and_exit!("Error occured building regex", e);}
+                        },
+                        Option::None => { print_and_exit!(WRONG_ARGS);}
+                    },
+                    Option::None => { print_and_exit!(WRONG_ARGS);}
                 },
                 _ => {print_and_exit!("I don't understand that argument.");}
             }
@@ -248,6 +262,24 @@ impl Ops{
                     Ok(_) => { },
                     Err(e) => { print_and_exit!("Failed to write to file", e); }
                 };
+            },
+            &Ops::FLC(ref f, ref r, ref s) => {
+                let mut f = match File::open( f ) {
+                    Ok(x) => x,
+                    Err(e) => { print_and_exit!("Failed to open", e);}
+                };
+                let size = match f.metadata() {
+                    Ok(x) => x.len() as usize,
+                    Err(e) => { print_and_exit!("Failed to get file size",e );}
+                };
+                let mut buff_in = String::with_capacity(size+10);
+                match f.read_to_string( &mut buff_in ) {
+                    Ok(_) => { },
+                    Err(e) => { print_and_exit!("Failed to read file", e);}
+                };
+                for cap in r.captures_iter(&buff_in) {
+                    println!("{}", scan(&s,&cap) );
+                }
             }
         }
     }

@@ -3,12 +3,12 @@ Simple Stream Editor
 
 sse is a stream editor that uses perl/python-esque regexes to lower the learning curve compared to sed. What I'm trying to say is I didn't want to learn sed's regex dialect.
 
-###Example usage:
+### Example usage:
 
      $ sse -i [REGEX] [FORMAT STRING]
      $ sse -flf [FILE] [REGEX] [FORMAT STRING]
 
-###CLI Options
+### CLI Options
 
 (- can be omitted much like tar)
 
@@ -25,17 +25,17 @@ sse is a stream editor that uses perl/python-esque regexes to lower the learning
      -fco     read file as a continous buffer 
 
 
-###Regex Dialect:
+### Regex Dialect:
 
 Internally sse uses Rust Regexes (Thanks to Burnt Sushi, Alex Crichton, Huown, and other contributors). [Docs](https://doc.rust-lang.org/regex/regex/index.html) [Repo](https://github.com/rust-lang-nursery/regex)
 
 
-###Format String Dialect:
+### Format String Dialect:
 
 The format string is inserted on matches. It uses `%1` sytle to denote capture groups. `%0`,`%1`,..,`%9` are used for this. `%0` returns the entire match/line. There is no group past `%9`. To get a normal '%' chacter the sequence `%%` can be used.
 
 
-###Project License:
+### Project License:
 
 
 

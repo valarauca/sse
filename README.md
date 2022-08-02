@@ -32,15 +32,16 @@ Internally sse uses Rust Regexes (Thanks to Burnt Sushi, Alex Crichton, Huown, a
 
 ### Format String Dialect:
 
-The format string is inserted on matches. It uses `%1` sytle to denote capture groups. `%0`,`%1`,..,`%9` are used for this. `%0` returns the entire match/line. There is no group past `%9`. To get a normal '%' chacter the sequence `%%` can be used.
+- Single Digit Capture Groups: `%0` -> `%9`
+- MultiDigit Capture Groups: `%<11>` -> `%<1009>`
+- Labelled Capture Groups: `%<mygroup>`
+- `%%` can be used to escape a capture group, solo `%` are not matched.
 
 
 ### Project License:
 
 
-
-    Copyright (c) 2016 Valarauca
-
+    Copyright (c) 2016-2022 William Cody Laeder
 
     Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

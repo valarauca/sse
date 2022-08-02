@@ -1,14 +1,16 @@
 extern crate regex;
-use regex::{Regex,Captures};
+use regex::{Regex};
 use std::env::args;
 use std::io::prelude::*;
 use std::io;
-use std::fs::File;
+
+mod cap_groups;
+use cap_groups::{CapGroup};
 
 //declare messages
 const WRONG_ARGS: &'static str = "Was expecting an additional arg. Use sse -h for help.";
 const HELP: &'static str = "Use sse -h for help.";
-const VERS: &'static str = "0.0.1";
+const VERS: &'static str = "0.0.2";
 const MSG: &'static str ="
 Simple Stream Editor
 
@@ -33,9 +35,10 @@ Regex Dialect:
 Internally sse uses Rust Regexes (Thanks to Burnt Sushi, Alex Crichton, and Huown).
 
 Format String Dialect:
-The format string is inserted on matches. %1,%2,...,%9 denote capture groups.
-%% denotes a single '%' character. %0 is the entire match. There is no support
-for >9 capture groups.
+- Single Digit Capture Groups: `%0` -> `%9`
+- MultiDigit Capture Groups: `%<11>` -> `%<1009>`
+- Labelled Capture Groups: `%<mygroup>`
+- `%%` can be used to escape a capture group, solo `%` are not matched.
 
 Example usage:
 $ sse -i [REGEX] [FORMAT STRING]
@@ -56,16 +59,7 @@ macro_rules! print_and_exit {
     };
 }
 
-macro_rules! push_capture {
-    ($val: expr, $bufr: expr, $caps: expr ) => {{
-        match $caps.at( $val ) {
-            Option::Some(x) => $bufr.push_str(x),
-            Option::None => { }
-        };
-    }};
-}
-
-
+/*
 //Function that handles generating output
 #[inline]
 fn scan(buffer: &str,groups: &Captures) -> String {
@@ -93,6 +87,7 @@ fn scan(buffer: &str,groups: &Captures) -> String {
         };
     }
 }
+*/
 
 //Operations program can do
 pub enum Ops {
@@ -203,13 +198,20 @@ impl Ops{
     fn exec(&self) {
         match self {
             &Ops::I(ref r,ref s,nice) => {
+                let caps = CapGroup::build_groups(s);
                 let stdin = io::stdin();
                 for line in stdin.lock().lines() {
                     match line {
                         Ok(ref x) => match r.captures(&x) {
-                            Option::Some(ref c) => println!("{}", scan(&s,c) ),
-                            Option::None => if nice {
-                                println!("{}", &x );
+                            Option::Some(ref c) => {
+                                let mut s = String::with_capacity(4096);
+                                CapGroup::output(caps.as_slice(), c, &mut s);
+                                println!("{}", s);
+                            },
+                            Option::None => {
+                                if nice {
+                                    println!("{}", &x );
+                                }
                             }
                         },
                         Err(e) => { print_and_exit!("Failed to open", e); }
@@ -217,88 +219,85 @@ impl Ops{
                 }
             },
             &Ops::FLO(ref f,ref r, ref s, nice) => {
-                let mut f = match File::open( f ) {
+                let caps = CapGroup::build_groups(s);
+                let buff = match std::fs::read_to_string(f) {
                     Ok(x) => x,
-                    Err(e) => { print_and_exit!("Failed to open", e);}
-                };
-                let size = match f.metadata() {
-                    Ok(x) => x.len() as usize,
-                    Err(e) => { print_and_exit!("Failed to get file size",e );}
-                };
-                let mut buff = String::with_capacity(size+10);
-                match f.read_to_string( &mut buff ) {
-                    Ok(_) => { },
-                    Err(e) => { print_and_exit!("Failed to read file", e);}
+                    Err(e) => { print_and_exit!("Failed to open", e); }
                 };
                 for line in buff.lines() {
                     match r.captures(&line) {
-                        Option::Some(ref c) => println!("{}", scan(&s,c) ),
-                        Option::None => if nice {
-                            println!("{}", &line );
+                        Option::Some(ref c) => {
+                            let mut s = String::with_capacity(4096);
+                            CapGroup::output(caps.as_slice(), c,&mut s);
+                            println!("{}", s);
+                        },
+                        Option::None => {
+                            if nice {
+                                println!("{}", &line );
+                            }
                         }
                     };
                 }
             },
             &Ops::FLF(ref f, ref r, ref s, nice, win) => {
-                let mut f = match File::open( f ) {
+                let caps = CapGroup::build_groups(s);
+                let output = match std::fs::read_to_string(f) {
                     Ok(x) => x,
-                    Err(e) => { print_and_exit!("Failed to open", e);}
+                    Err(e) => { print_and_exit!("Failed to open", e); }
                 };
-                let size = match f.metadata() {
-                    Ok(x) => x.len() as usize,
-                    Err(e) => { print_and_exit!("Failed to get file size",e );}
-                };
-                let mut buff_in = String::with_capacity(size+10);
-                let mut buff_out = String::with_capacity(size+10);
-                match f.read_to_string( &mut buff_in ) {
-                    Ok(_) => { },
-                    Err(e) => { print_and_exit!("Failed to read file", e);}
-                };
-                for line in buff_in.lines() {
+                let mut buff_out = String::with_capacity(4096);
+                for line in output.lines() {
                     match r.captures(&line) {
                         Option::Some(ref c) => {
-                            buff_out.push_str( &scan(&s,c) );
+                            CapGroup::output(&caps, c, &mut buff_out);
                             if win {
                                 buff_out.push_str("\r\n");
                             } else {
                                 buff_out.push('\n');
                             }
                         },
-                        Option::None => if nice {
-                            buff_out.push_str( &line );
-                            if win {
-                                buff_out.push_str("\r\n");
-                            } else {
-                                buff_out.push('\n');
+                        Option::None => {
+                            if nice {
+                                buff_out.push_str( &line );
+                                if win {
+                                    buff_out.push_str("\r\n");
+                                } else {
+                                    buff_out.push('\n');
+                                }
                             }
                         }
                     };
                 }
-                match f.write_all(&buff_out.as_bytes()) {
+                match write_all(f, &buff_out) {
                     Ok(_) => { },
                     Err(e) => { print_and_exit!("Failed to write to file", e); }
                 };
             },
             &Ops::FLC(ref f, ref r, ref s) => {
-                let mut f = match File::open( f ) {
-                    Ok(x) => x,
-                    Err(e) => { print_and_exit!("Failed to open", e);}
-                };
-                let size = match f.metadata() {
-                    Ok(x) => x.len() as usize,
-                    Err(e) => { print_and_exit!("Failed to get file size",e );}
-                };
-                let mut buff_in = String::with_capacity(size+10);
-                match f.read_to_string( &mut buff_in ) {
-                    Ok(_) => { },
+                let arg = match std::fs::read_to_string(f) {
+                    Ok(buf) => buf,
                     Err(e) => { print_and_exit!("Failed to read file", e);}
                 };
-                for cap in r.captures_iter(&buff_in) {
-                    println!("{}", scan(&s,&cap) );
+                let caps = CapGroup::build_groups(s);
+                for cap in r.captures_iter(&arg) {
+                    let mut s = String::with_capacity(4096);
+                    CapGroup::output(&caps, &cap, &mut s); 
+                    println!("{}", s);
                 }
             }
         }
     }
+}
+
+fn write_all(path: &str, data: &String) -> Result<(),std::io::Error> {
+    if data.len() == 0 {
+        return Ok(());
+    }
+    let mut f = std::fs::OpenOptions::new().truncate(true).create(true).write(true).open(path)?;
+    f.write_all(data.as_bytes())?;
+    f.sync_data()?;
+    f.sync_all()?;
+    Ok(())
 }
 
 //entry point

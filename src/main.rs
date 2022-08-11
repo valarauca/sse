@@ -6,6 +6,7 @@ use std::io;
 
 mod cap_groups;
 use cap_groups::{CapGroup};
+mod cli;
 
 //declare messages
 const WRONG_ARGS: &'static str = "Was expecting an additional arg. Use sse -h for help.";

@@ -4,6 +4,7 @@ use lazy_static::lazy_static;
 
 lazy_static! {
     static ref CAP_GROUP: Regex = Regex::new(r#"%(?P<escapegroup>%)?((<((?P<labelledgroup>[a-z][a-zA-Z0-9]+)|(?P<multidigit>[0-9]{2,}))>)|(?P<singledigit>[0-9]))"#).unwrap();
+    static ref SPECIAL: Regex = Regex::new(r#"((?P<tab>\x5Ct)|(?P<newline>\x5Cn)|(?P<carriagereturn>\x5Cr)|(?P<verticaltab>\x5Cv)|(?P<backslash>\x5C\x5C)|(?P<unicode>\x5C(u|x|U)\{(?P<unicodevalue>[a-f0-9A-F]{1,8})\}))"#).unwrap();
 }
 
 #[derive(Clone,PartialEq,Eq,PartialOrd,Ord,Hash,Debug)]
@@ -13,35 +14,35 @@ pub enum CapGroup<'a> {
     Labelled(&'a str),
     Escape(&'a str),
     CopyFromInput(&'a str),
+    SingleChar(char),
 }
 impl<'a> CapGroup<'a> {
 
     pub fn output(groups: &[CapGroup<'a>], caps: &Captures<'_>, buffer: &mut String) {
         for g in groups.iter() {
-            let text = match g {
+            match g {
                 &CapGroup::MultiDigit(ref x) |
                 &CapGroup::SingleDigit(ref x) => {
                     match caps.get(*x) {
-                        Option::None => "",
-                        Option::Some(ref m) => m.as_str(),
-                    }
+                        Option::None => { }
+                        Option::Some(ref m) => buffer.push_str(m.as_str()),
+                    };
                 }
                 &CapGroup::Labelled(ref label) => {
                     match caps.name(label) {
-                        Option::None => "",
-                        Option::Some(ref m) => m.as_str(),
-                    }
+                        Option::None => { },
+                        Option::Some(ref m) => buffer.push_str(m.as_str()),
+                    };
                 }
-                &CapGroup::Escape(x) => x,
-                &CapGroup::CopyFromInput(x) => x
+                &CapGroup::Escape(x) |
+                &CapGroup::CopyFromInput(x) => buffer.push_str(x),
+                &CapGroup::SingleChar(c) => buffer.push(c),
             };
-            buffer.push_str(text);
         }
     }
 
     pub fn build_groups(arg: &'a str) -> Vec<CapGroup<'a>> {
-
-        let mut todo_list = Vec::new();
+        let mut todo_list = Vec::with_capacity(1);
         let mut old_start = 0usize;
         for cap in CAP_GROUP.captures_iter(arg) {
             let (start,end) = match cap.get(0) {
@@ -49,13 +50,13 @@ impl<'a> CapGroup<'a> {
                 Option::Some(ref m) => (m.start(), m.end()),
             };
             if start != old_start {
-                todo_list.push(CapGroup::CopyFromInput(slice_str(arg,old_start,start-1)));
+                Self::build_spec_groups(slice_str(arg,old_start,start-1), &mut todo_list);
             }
             old_start = end;
             todo_list.push(CapGroup::build(cap));
         }
-        if (old_start+1) < arg.len() {
-            todo_list.push(CapGroup::CopyFromInput(slice_str(arg,old_start,arg.len()-1)));
+        if (old_start+1) <= arg.len() {
+            Self::build_spec_groups(slice_str(arg, old_start, arg.len()-1), &mut todo_list);
         }
         todo_list
     }
@@ -102,6 +103,48 @@ impl<'a> CapGroup<'a> {
             }
         }
     }
+
+    fn build_spec_groups(arg: &'a str, todo_list: &mut Vec<CapGroup<'a>>) {
+        let mut old_start = 0usize;
+        for cap in SPECIAL.captures_iter(arg) {
+            let (start,end) = match cap.get(0) {
+                Option::None => {
+                    continue;
+                },
+                Option::Some(ref m) => (m.start(), m.end()),
+            };
+            if start != old_start {
+                todo_list.push(CapGroup::CopyFromInput(slice_str(arg,old_start,start-1)));
+            }
+            old_start = end;
+            todo_list.extend(CapGroup::build_spec(cap));
+        }
+        if (old_start+1) <= arg.len() {
+            todo_list.push(CapGroup::CopyFromInput(slice_str(arg,old_start,arg.len()-1)));
+        }
+    }
+
+    fn build_spec(cap: Captures<'a>) -> Option<CapGroup<'a>> {
+        Option::None
+            .into_iter()
+            .chain(cap.name("tab").is_some()
+                   .then(|| CapGroup::SingleChar('\t')))
+            .chain(cap.name("newline").is_some()
+                   .then(|| CapGroup::SingleChar('\n')))
+            .chain(cap.name("carriagereturn").is_some()
+                   .then(|| CapGroup::SingleChar('\r')))
+            .chain(cap.name("verticaltab").is_some()
+                   .then(|| CapGroup::SingleChar('\u{0B}')))
+            .chain(cap.name("backslash").is_some()
+                   .then(|| CapGroup::SingleChar('\u{0B}')))
+            .chain(cap.name("unicodevalue")
+                   .into_iter()
+                   .filter_map(|m| u32::from_str_radix(m.as_str(),16).ok())
+                   .filter_map(|u| char::from_u32(u))
+                   .map(|c| CapGroup::SingleChar(c))
+                   .next())
+            .next()
+    }
 }
 
 fn slice_str<'a>(arg: &'a str, start: usize, end: usize) -> &'a str {
@@ -122,6 +165,22 @@ fn test_cap_group_regex() {
 
     for item in NEEDS_TO_MATCH.iter() {
         assert!(CAP_GROUP.is_match(item));
+    }
+}
+#[test]
+fn spec_group_needs_to_match() {
+    const NEEDS_TO_MATCH: &'static [&'static str] = &[
+        r#"\t"#,
+        r#"\n"#,
+        r#"\r"#,
+        r#"\v"#,
+        r#"\\"#,
+        r#"\u{2764}"#,
+        r#"\x{2764}"#,
+        r#"\U{2764}"#,
+    ];
+    for item in NEEDS_TO_MATCH {
+        assert!(SPECIAL.is_match(item));
     }
 }
 
@@ -155,3 +214,18 @@ fn build_cap_group() {
     assert_eq!(output[7], CapGroup::CopyFromInput(" pattern"));
     assert_eq!(output[8], CapGroup::SingleDigit(4));
 }
+
+#[test]
+fn test_last_char_breakage() {
+    let output = CapGroup::build_groups(r#"hello %<11> weird%3%<world> pattern%4\tfoobar"#);
+    assert_eq!(output[0], CapGroup::CopyFromInput("hello "));
+    assert_eq!(output[1], CapGroup::MultiDigit(11));
+    assert_eq!(output[2], CapGroup::CopyFromInput(" weird"));
+    assert_eq!(output[3], CapGroup::SingleDigit(3));
+    assert_eq!(output[4], CapGroup::Labelled("world"));
+    assert_eq!(output[5], CapGroup::CopyFromInput(" pattern"));
+    assert_eq!(output[6], CapGroup::SingleDigit(4));
+    assert_eq!(output[7], CapGroup::SingleChar('\t'));
+    assert_eq!(output[8], CapGroup::CopyFromInput("foobar"));
+}
+

@@ -5,6 +5,8 @@ use std::borrow::Cow;
 use lazy_static::lazy_static;
 use regex::{Regex,Captures,RegexBuilder};
 
+use crate::cap_groups::{CapGroup};
+
 
 lazy_static! {
     static ref INITIAL_FLAG_MATCH: Regex = Regex::new(r#"^(?P<LeadingHypen>-)?((?P<stdin>i)|(?P<file>f))((?P<LiteralMatch>F)|(?P<nice>n)|(?P<CaseInSensitive>S)|(?P<IgnoreWhiteSpace>x)|(?P<SwapGreedy>G)|(?P<DotMatchesNewLine>s)|(?P<Ascii>a))*((?P<Continuous>c)|(?P<LineByLine>l((?P<WindowsEoL>w)|(?P<MacEoL>m)|(?P<UnixEoL>u)|(?P<IBM>i)|(?P<QNX>q)(?P<Acorn>a))?))?(?P<output>(?P<stdout>o)|(?P<stderr>e)|(?P<writeback>f)|(?P<redirect>r))?$"#).unwrap();
@@ -33,35 +35,50 @@ pub fn from_cli() -> Result<WorkTodo,Cow<'static,str>> {
                     Err(e) => return Err(Cow::from(e))
                 }
             };
-            match opts.additional_args_needed() {
-                0 => {
-                    return Ok(WorkTodo::Work(Box::new(opts),regex,Vec::new()));
-                },
+            let caps = if args.len() < 4 {
+                return Err(Cow::from(format!("required at least 3 args: '{} {} [FORMAT STRING]' see '--help' for more info", &args[1], &args[2])));
+            } else {
+                if opts.literal_match {
+                    vec![CapGroup::CopyFromInput(&args[2])]
+                } else {
+                    CapGroup::build_groups(&args[2])
+                }
+            };
+
+            let optional_args = match opts.additional_args_needed() {
                 1 => {
                     let mut v = Vec::with_capacity(1);
-                    if args.len() < 4 {
-                        return Err(Cow::from(format!("required at least 3 args: '{} {} [FILE]' see '--help' for more info", &args[1], &args[2])));
-                    } else {
-                        v.push(args[3].to_string());
-                    }
-                    return Ok(WorkTodo::Work(Box::new(opts), regex, v));
-                },
-                2 => {
-                    let mut v = Vec::with_capacity(2);
-                    if args.len() < 4 {
-                        return Err(Cow::from(format!("required at least 4 args: '{} {} [FILE] [FILE]' see '--help' for more info", &args[1], &args[2])));
-                    } else {
-                        v.push(args[3].to_string());
-                    }
                     if args.len() < 5 {
                         return Err(Cow::from(format!("required at least 4 args: '{} {} {} [FILE]' see '--help' for more info", &args[1], &args[2], &args[3])));
                     } else {
                         v.push(args[4].to_string());
                     }
-                    return Ok(WorkTodo::Work(Box::new(opts), regex, v));
+                    v
+                },
+                2 => {
+                    let mut v = Vec::with_capacity(2);
+                    if args.len() < 5 {
+                        return Err(Cow::from(format!("required at least 5 args: '{} {} {} [FILE IN] [FILE OUT]' see '--help' for more info", &args[1], &args[2], &args[3])));
+                    } else {
+                        v.push(args[4].to_string());
+                    }
+                    if args.len() < 6 {
+                        return Err(Cow::from(format!("required at least 4 args: '{} {} {} {} [FILE OUT]' see '--help' for more info", &args[1], &args[2], &args[3], &args[4])));
+                    } else {
+                        v.push(args[5].to_string());
+                    }
+                    v
                 }
-                _ => panic!()
+                _ => Vec::new(),
             };
+            let reader = cli.open_input(opts).map_err(|e| Cow::Owned(format!("{:?}", e)))?;
+            if opts.can_stream_output() {
+                // TODO
+            } else {
+                let mut s = String::with_capacity(4096);
+                reader.read_to_string(&mut s).map_err(|e| Cow::Owned(format!("{:?}", e)))?;
+            }
+
         } else {
             return Err(Cow::Borrowed("didn't understand that, see: '--help' for more info"));
         }
@@ -80,8 +97,6 @@ impl WorkTodo {
             &Self::PrintHelp => Ok("help text"),
             &Self::PrintVersion => Ok("version"),
             &Self::Work(ref cli, ref regex, ref opts) => {
-                let reader = cli.open_input(opts).map_err(|e| Cow::Owned(format!("{:?}", e)))?;
-                let mut s = String::with_capacity(4096);
             }
         }
     }
@@ -113,6 +128,15 @@ impl InitialFlagOptions {
             (&Input::File,&Output::SameFile) => 1,
             (&Input::File,&Output::DifferentFile) => 2,
             _ => 0,
+        }
+    }
+
+    fn can_stream_output(&self) -> bool {
+        match (&self.input,&self.output) {
+            (&Input::Stdin,&Output::Stdout) => true
+            (&Input::Stdin,&Output::Stderr) => true,
+            (&Input::File,&Output::DifferentFile) => true
+            _ => false,
         }
     }
 

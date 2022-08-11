@@ -1,11 +1,15 @@
 
-use std::io::{self,Read,BufReader};
+use std::io::{self,Read,BufReader,BufWriter};
 use std::borrow::Cow;
 
 use lazy_static::lazy_static;
 use regex::{Regex,Captures,RegexBuilder};
 
-use crate::cap_groups::{CapGroup};
+use crate::{
+    cap_groups::{CapGroup},
+    buffered_reader::BufferedReader,
+    work::{MyTrait,do_work},
+};
 
 
 lazy_static! {
@@ -71,14 +75,9 @@ pub fn from_cli() -> Result<WorkTodo,Cow<'static,str>> {
                 }
                 _ => Vec::new(),
             };
-            let reader = cli.open_input(opts).map_err(|e| Cow::Owned(format!("{:?}", e)))?;
-            if opts.can_stream_output() {
-                // TODO
-            } else {
-                let mut s = String::with_capacity(4096);
-                reader.read_to_string(&mut s).map_err(|e| Cow::Owned(format!("{:?}", e)))?;
-            }
-
+            do_work(&opts, &regex, &caps, &optional_args)
+                .map_err(|e| Cow::Owned(format!("{:?}", e)))?;
+            return Ok(WorkTodo::Nothing);
         } else {
             return Err(Cow::Borrowed("didn't understand that, see: '--help' for more info"));
         }
@@ -88,31 +87,19 @@ pub fn from_cli() -> Result<WorkTodo,Cow<'static,str>> {
 pub enum WorkTodo {
     PrintHelp,
     PrintVersion,
-    Work(Box<InitialFlagOptions>,Regex,Vec<String>),
+    Nothing,
 }
-/*
-impl WorkTodo {
-    fn do_work(&self) -> Result<Cow<'static,str>,Cow<'static,str>> {
-        match self {
-            &Self::PrintHelp => Ok("help text"),
-            &Self::PrintVersion => Ok("version"),
-            &Self::Work(ref cli, ref regex, ref opts) => {
-            }
-        }
-    }
-}
-*/
 
 
 
 #[allow(dead_code)]
 #[derive(PartialEq,Eq,PartialOrd,Ord,Debug,Clone)]
 pub struct InitialFlagOptions {
-    input: Input,
-    output: Output,
-    matching: Matching,
+    pub input: Input,
+    pub output: Output,
+    pub matching: Matching,
     literal_match: bool,
-    nice: bool,
+    pub nice: bool,
     case_in_sensitive: bool,
     ignore_whitespace: bool,
     swap_greedy: bool,
@@ -131,15 +118,6 @@ impl InitialFlagOptions {
         }
     }
 
-    fn can_stream_output(&self) -> bool {
-        match (&self.input,&self.output) {
-            (&Input::Stdin,&Output::Stdout) => true
-            (&Input::Stdin,&Output::Stderr) => true,
-            (&Input::File,&Output::DifferentFile) => true
-            _ => false,
-        }
-    }
-
     fn build_regex(&self, arg: &str) -> Result<Regex,String> {
         if self.literal_match {
             Regex::new(&regex::escape(arg)).map_err(|e| format!("{:?}", e))
@@ -147,7 +125,7 @@ impl InitialFlagOptions {
             RegexBuilder::new(arg)
                 .case_insensitive(self.case_in_sensitive)
                 .multi_line(self.matching.is_multi_line())    
-                .dot_matches_new_line(if self.matching.is_multi_line() { if self.dot_matches_newline { false } else { true } } else { false })
+                .dot_matches_new_line(self.matching.is_multi_line() && self.dot_matches_newline)
                 .swap_greed(self.swap_greedy)
                 .ignore_whitespace(self.ignore_whitespace)
                 .unicode(!self.ascii_only)
@@ -171,6 +149,7 @@ impl InitialFlagOptions {
         }
     }
 
+    #[cfg(test)]
     const fn default() -> Self {
         Self {
             input: Input::Stdin,
@@ -302,6 +281,17 @@ pub enum Matching {
     LineByLine(Eol),
 }
 impl Matching {
+
+    pub fn build_input_stream<R: Read>(&self, input: BufReader<R>) -> Result<(BufferedReader<R>,&'static [u8]), BufReader<R>> {
+        match self {
+            &Self::Continuous => Err(input),
+            &Self::LineByLine(ref eol) => {
+                let term = eol.get_eol_bytes();
+                Ok((BufferedReader::new(input, term), term))
+            }
+        }
+    }
+
     fn is_multi_line(&self) -> bool {
         *self == Matching::Continuous
     }
@@ -326,6 +316,24 @@ pub enum Eol {
     Acorn,
 }
 impl Eol {
+
+    fn get_eol_bytes(&self) -> &'static [u8] {
+        const WINDOWS_EOL: &'static [u8] = &[ 0x0D, 0x0A];
+        const MAC_EOL: &'static [u8] = &[0x0D];
+        const UNIX_EOL: &'static [u8] = &[0x0A];
+        const IBM_EOL: &'static [u8] = &[0x15];
+        const QNX_EOL: &'static [u8] = &[0x1E];
+        const ACORN_EOL: &'static [u8] = &[0x0A,0x0D];
+        match self {
+            &Self::Windows => WINDOWS_EOL,
+            &Self::Mac => MAC_EOL,
+            &Self::Unix => UNIX_EOL,
+            &Self::Ibm => IBM_EOL,
+            &Self::Qnx => QNX_EOL,
+            &Self::Acorn => ACORN_EOL,
+        }
+    }
+
     fn new(cap: &Captures<'_>) -> Self {
         cap.name("WindowsEoL")
             .is_some()
@@ -350,6 +358,51 @@ pub enum Output {
 }
 impl Output {
 
+    pub fn open_output(
+        &self,
+        input_is_stdin: bool,
+        args: &[String],
+    ) -> Result<BufWriter<Box<dyn MyTrait>>,io::Error> {
+        match self {
+            &Self::Stdout => Ok(BufWriter::with_capacity(16 * 1024, Box::new(std::io::stdout()))),
+            &Self::Stderr => Ok(BufWriter::with_capacity(16 * 1024, Box::new(std::io::stderr()))),
+            &Self::SameFile |
+            &Self::DifferentFile => {
+                if input_is_stdin {
+                    Ok(BufWriter::with_capacity(16 * 1024, Box::new(std::fs::OpenOptions::new().create(true).truncate(true).open(&args[0])?)))
+                } else {
+                    Ok(BufWriter::with_capacity(16 * 1024, Box::new(std::fs::OpenOptions::new().create(true).truncate(true).open(&args[1])?)))
+                }
+            },
+        }
+    }
+
+    pub fn open_for_stream(
+        &self,
+        input_is_stdin: bool,
+        args: &[String],
+    ) -> Result<Option<BufWriter<Box<dyn MyTrait>>>,io::Error> {
+        match self {
+            &Self::Stdout => Ok(Some(BufWriter::with_capacity(16 * 1024, Box::new(std::io::stdout())))),
+            &Self::Stderr => Ok(Some(BufWriter::with_capacity(16 * 1024, Box::new(std::io::stderr())))),
+            &Self::SameFile => {
+                if input_is_stdin {
+                    Ok(Some(BufWriter::with_capacity(16 * 1024, Box::new(std::fs::OpenOptions::new().create(true).truncate(true).open(&args[0])?))))
+                } else {
+                    // writing back to same file
+                    Ok(None)
+                }
+            },
+            &Self::DifferentFile => {
+                if input_is_stdin {
+                    Ok(Some(BufWriter::with_capacity(16 * 1024, Box::new(std::fs::OpenOptions::new().create(true).truncate(true).open(&args[0])?))))
+                } else {
+                    Ok(Some(BufWriter::with_capacity(16 * 1024, Box::new(std::fs::OpenOptions::new().create(true).truncate(true).open(&args[1])?))))
+                }
+            },
+        }
+    }
+
     fn new(cap: &Captures<'_>) -> Self {
         cap.name("output")
             .is_some()
@@ -371,7 +424,11 @@ pub enum Input {
 }
 impl Input {
 
-    fn open_input(&self, opts: &[String]) -> Result<BufReader<Box<dyn Read>>,io::Error> {
+    pub fn is_stdin(&self) -> bool {
+        *self == Self::Stdin
+    }
+
+    pub fn open_input(&self, opts: &[String]) -> Result<BufReader<Box<dyn Read>>,io::Error> {
         match self {
             &Self::Stdin => Ok(BufReader::with_capacity(32 * 1024, Box::new(std::io::stdin()))),
             &Self::File => Ok(BufReader::with_capacity(32 * 1024, Box::new(std::fs::File::open(&opts[0])?))),

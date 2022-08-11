@@ -1,4 +1,6 @@
 
+use std::io::{self,Write};
+
 use regex::{Regex,Captures};
 use lazy_static::lazy_static;
 
@@ -39,6 +41,40 @@ impl<'a> CapGroup<'a> {
                 &CapGroup::SingleChar(c) => buffer.push(c),
             };
         }
+    }
+
+    pub fn steam_output<W: Write>(groups: &[CapGroup<'a>], caps: &Captures<'_>, output: &mut W) -> io::Result<()> {
+        for g in groups.iter() {
+            match g {
+                &CapGroup::MultiDigit(ref x) |
+                &CapGroup::SingleDigit(ref x) => {
+                    match caps.get(*x) {
+                        Option::None => { }
+                        Option::Some(ref m) => {
+                            output.write_all(m.as_str().as_bytes())?;
+                        }
+                    };
+                }
+                &CapGroup::Labelled(ref label) => {
+                    match caps.name(label) {
+                        Option::None => { },
+                        Option::Some(ref m) => {
+                            output.write_all(m.as_str().as_bytes())?;
+                        }
+                    };
+                }
+                &CapGroup::Escape(x) |
+                &CapGroup::CopyFromInput(x) => {
+                    output.write_all(x.as_bytes())?;
+                }
+                &CapGroup::SingleChar(c) => {
+                    let mut s = String::new();
+                    s.push(c);
+                    output.write_all(s.as_bytes())?;
+                }
+            };
+        }
+        Ok(())
     }
 
     pub fn build_groups(arg: &'a str) -> Vec<CapGroup<'a>> {

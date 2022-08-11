@@ -43,9 +43,9 @@ pub fn from_cli() -> Result<WorkTodo,Cow<'static,str>> {
                 return Err(Cow::from(format!("required at least 3 args: '{} {} [FORMAT STRING]' see '--help' for more info", &args[1], &args[2])));
             } else {
                 if opts.literal_match {
-                    vec![CapGroup::CopyFromInput(&args[2])]
+                    vec![CapGroup::CopyFromInput(&args[3])]
                 } else {
-                    CapGroup::build_groups(&args[2])
+                    CapGroup::build_groups(&args[3])
                 }
             };
 

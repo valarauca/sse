@@ -77,6 +77,7 @@ impl MyTrait for std::fs::File {
 }
 impl MyTrait for std::io::Stdout {
     fn trait_flush(&mut self) -> io::Result<()> {
+        self.write_all(b"\n")?;
         self.flush()
     }
 }
